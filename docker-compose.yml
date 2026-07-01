@@ -40,6 +40,13 @@ services:
     volumes:
       # Mount the local audio-registry.json to persist audio paths if doing local injection
       - ./audio-registry.json:/app/audio-registry.json
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-ap-south-1}
+        awslogs-group: /call-reviewer/production
+        awslogs-stream: web-app
+        awslogs-create-group: "true"
 
   nginx:
     image: nginx:alpine
@@ -51,6 +58,13 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - web
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-ap-south-1}
+        awslogs-group: /call-reviewer/production
+        awslogs-stream: nginx
+        awslogs-create-group: "true"
 
 volumes:
   postgres_data:
