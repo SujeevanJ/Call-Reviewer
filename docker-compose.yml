@@ -29,6 +29,8 @@ services:
       - "3000"
     environment:
       - DATABASE_URL=postgresql://postgres:your_secure_password@postgres:5432/call_reviewer?schema=public
+      - AWS_REGION=${AWS_REGION:-}
+      - SECRET_NAME=call-reviewer/production
       - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}

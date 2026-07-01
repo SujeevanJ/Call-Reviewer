@@ -1,4 +1,5 @@
 import { db } from './db';
+import { getSecret } from './secrets';
 
 interface ScorecardQuestion {
   id: string;
@@ -115,8 +116,8 @@ export async function generateDynamicQuestions(
   scorecardId: string,
   scorecardName: string
 ): Promise<ScorecardQuestion[]> {
-  const gKey = process.env.GROQ_API_KEY;
-  const geminiKey = process.env.GEMINI_API_KEY;
+  const gKey = await getSecret('GROQ_API_KEY');
+  const geminiKey = await getSecret('GEMINI_API_KEY');
 
   if (isKeyConfigured(gKey)) {
     try {

@@ -4,6 +4,7 @@ import { getAuthenticatedUser, UserContext } from '@/lib/auth';
 import { generateDynamicQuestions } from '@/lib/ai-question-generator';
 import { pickDemoRecordingUrl } from '@/shared/lib/demo-recordings';
 import { transcribeAudioUrl, saveTranscriptToDb } from '@/lib/assemblyai-transcriber';
+import { getSecret } from '@/lib/secrets';
 import crypto from 'crypto';
 import fs from 'fs';
 
@@ -1118,13 +1119,14 @@ async function getOrGenerateAiInsights(review: any, call: any) {
   }
 
   const fullText = transcript.fullText;
-  if (fullText && process.env.GROQ_API_KEY && !process.env.GROQ_API_KEY.startsWith('your_')) {
+  const groqApiKey = await getSecret('GROQ_API_KEY');
+  if (fullText && groqApiKey && !groqApiKey.startsWith('your_')) {
     try {
       const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`
+          Authorization: `Bearer ${groqApiKey}`
         },
         body: JSON.stringify({
           model: 'llama-3.3-70b-versatile',

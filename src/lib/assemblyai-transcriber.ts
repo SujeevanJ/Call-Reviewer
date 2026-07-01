@@ -4,10 +4,12 @@
  * Saves resulting utterances into the Transcript/TranscriptUtterance tables.
  */
 
+import { getSecret } from './secrets';
+
 const ASSEMBLYAI_BASE = 'https://api.assemblyai.com/v2';
 
-function getApiKey(): string | null {
-  const key = process.env.ASSEMBLYAI_API_KEY;
+async function getApiKey(): Promise<string | null> {
+  const key = await getSecret('ASSEMBLYAI_API_KEY');
   if (!key || key.startsWith('your_')) return null;
   return key;
 }
@@ -35,7 +37,7 @@ interface AssemblyTranscriptResponse {
  * Returns the completed transcript with speaker-labeled utterances.
  */
 export async function transcribeAudioUrl(audioUrl: string): Promise<AssemblyTranscriptResponse | null> {
-  const apiKey = getApiKey();
+  const apiKey = await getApiKey();
   if (!apiKey) {
     console.warn('[AssemblyAI] No API key configured — skipping transcription.');
     return null;
