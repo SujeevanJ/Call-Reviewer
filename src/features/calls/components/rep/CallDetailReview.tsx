@@ -10,10 +10,12 @@ import type { ReviewData, ScorecardSection, ScorecardQuestion } from '@calls/dat
 
 function QuestionBlock({ q, callId }: { q: ScorecardQuestion; callId: string }) {
   const router = useRouter();
-  const scorePercent = q.maxScore > 0 ? (q.score / q.maxScore) * 10 : q.score;
+  const scorePercent = q.score == null ? null : (q.maxScore > 0 ? (q.score / q.maxScore) * 10 : q.score);
 
   const scoreColor =
-    scorePercent >= 8
+    scorePercent == null
+      ? 'text-gray-400'
+      : scorePercent >= 8
       ? 'text-green-600'
       : scorePercent >= 5
       ? 'text-yellow-600'
@@ -40,7 +42,7 @@ function QuestionBlock({ q, callId }: { q: ScorecardQuestion; callId: string }) 
         </div>
         <div className="ml-4 text-right shrink-0">
           <div className={`text-2xl font-semibold ${scoreColor}`}>
-            {q.score}/{q.maxScore}
+            {q.score != null ? q.score : '—'}/{q.maxScore}
           </div>
         </div>
       </div>

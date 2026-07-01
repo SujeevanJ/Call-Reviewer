@@ -39,7 +39,7 @@ export interface AIInsights {
 export interface ScorecardQuestion {
   questionText: string;
   managerAnswer: string;
-  score: number;
+  score: number | null;
   maxScore: number;
   managerComments: string;
   aiSuggestion: string;

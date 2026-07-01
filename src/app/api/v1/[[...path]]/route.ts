@@ -1347,7 +1347,7 @@ function buildSectionsFromAnswers(answersJson: any): any[] {
     sectionsMap[sectionKey].questions.push({
       questionText:        q.question || q.text || 'Question?',
       managerAnswer,
-      score:               isNa ? 0 : (q.score || 0),
+      score:               isNa ? 0 : (q.score ?? null),
       maxScore,
       managerComments:     q.comment || q.coachingComment || '',
       aiSuggestion:        q.snippet || q.aiSuggestion || '',

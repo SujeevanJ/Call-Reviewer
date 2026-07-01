@@ -196,7 +196,7 @@ export default function CallsReviewEvaluateView({ reviewId }: CallsReviewEvaluat
             type: q.type === 'scale_1_5' ? 'scale' : 'boolean',
             options: q.type === 'dropdown' ? q.options : undefined,
             aiSuggestion: {
-              confidence: q.confidence || Math.floor(65 + Math.random() * 30),
+              confidence: q.confidence || Math.min(98, 70 + (q.question?.length || 0) % 25),
               value: q.score != null ? String(q.score) : (q.type === 'yes_no' ? 'Yes' : '3'),
               text: q.snippet || q.transcriptReference || 'Based on transcript analysis.',
               secs: q.startMs ? Math.floor(q.startMs / 1000) : undefined,
@@ -235,7 +235,7 @@ export default function CallsReviewEvaluateView({ reviewId }: CallsReviewEvaluat
           text: `${q.question} *`,
           type: q.type === 'scale_1_5' ? 'scale' : 'boolean',
           aiSuggestion: {
-            confidence: q.confidence || Math.floor(65 + Math.random() * 30),
+            confidence: q.confidence || Math.min(98, 70 + (q.question?.length || 0) % 25),
             value: q.type === 'yes_no' ? 'Yes' : '3',
             text: q.snippet || q.transcriptReference || 'Based on transcript analysis.',
           },
