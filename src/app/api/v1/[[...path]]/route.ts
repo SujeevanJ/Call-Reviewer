@@ -5,6 +5,7 @@ import { generateDynamicQuestions } from '@/lib/ai-question-generator';
 import { pickDemoRecordingUrl } from '@/shared/lib/demo-recordings';
 import { transcribeAudioUrl, saveTranscriptToDb } from '@/lib/assemblyai-transcriber';
 import crypto from 'crypto';
+import fs from 'fs';
 
 // Explicitly export HTTP methods
 export async function GET(req: Request, { params }: { params: { path?: string[] } }) {
@@ -280,7 +281,6 @@ async function handleRequest(method: string, req: Request, pathSegments: string[
       if (!src) return errorResponse('Missing src', 'BAD_REQUEST', 400);
 
       // Map the internal AssemblyAI upload URL to the local file on disk using the registry
-      const fs = require('fs');
       let registry: Record<string, string> = {};
       const registryPath = './audio-registry.json';
       if (fs.existsSync(registryPath)) {
