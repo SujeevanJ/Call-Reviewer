@@ -33,6 +33,8 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/audio-registry.json ./audio-registry.json
 # Copy any local audio files that might be placed in the project root
+# Copy scripts for DB initialization
+COPY --from=builder /app/scripts ./scripts
 # Copy any local audio files that might be placed in the project safely
 COPY --from=builder /app/package.json /app/audio* ./audio/
 
