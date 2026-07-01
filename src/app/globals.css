@@ -1,27 +1,66 @@
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@300;400;600&family=Hanken+Grotesk:wght@500;600;700&family=Source+Sans+Pro:wght@300;400;600&family=Source+Code+Pro:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
+  --font-size: 16px;
   --background: #ffffff;
-  --foreground: #171717;
-}
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+  --primary: #10338D;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f7;
+  --secondary-foreground: #1a1a1a;
+  --muted: #f5f5f7;
+  --muted-foreground: #6b7280;
+  --accent: #FF3C00;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #E5E7EB;
+  --input: transparent;
+  --input-background: #f9fafb;
+  --switch-background: #e5e7eb;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: #10338D;
+  --radius: 0.625rem;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-serif: 'Source Serif Pro', serif;
+  --font-sans: 'Source Sans Pro', sans-serif;
+  --font-mono: 'Source Code Pro', monospace;
+  --font-accent: 'Hanken Grotesk', sans-serif;
 }
 
 body {
+  background-color: var(--background);
   color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+.dark {
+  --background: #000000;
+  --foreground: #fcfcfc;
+  --card: #000000;
+  --card-foreground: #fcfcfc;
+  --popover: #000000;
+  --popover-foreground: #fcfcfc;
+  --primary: #fcfcfc;
+  --primary-foreground: #343434;
+  --secondary: #454545;
+  --secondary-foreground: #fcfcfc;
+  --muted: #454545;
+  --muted-foreground: #b5b5b5;
+  --accent: #454545;
+  --accent-foreground: #fcfcfc;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #454545;
+  --input: #454545;
+  --ring: #707070;
 }

@@ -1,0 +1,2513 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema", "postgresqlExtensions"]
+  output          = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["dashboards", "public", "ingestion", "revenuegraph"]
+}
+
+// ─────────────────────────────────────────────────────────────
+// Platform Core
+// ─────────────────────────────────────────────────────────────
+model Tenant {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  slug       String       @unique
+  status     TenantStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  accounts   Account[]
+  calls      Call[]
+  dashboards Dashboard[]
+  datasets   Dataset[]
+  deals      Deal[]
+  users      User[]
+
+  @@schema("public")
+}
+
+model User {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid      String         @db.Uuid
+  email         String
+  passwordHash  String
+  name          String
+  role          UserRole
+  status        UserStatus     @default(ACTIVE)
+  lastLoginAt   DateTime?
+  dashboards    Dashboard[]    @relation("DashboardOwner")
+  tenant        Tenant         @relation(fields: [tenantid], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@unique([tenantid, email])
+  @@index([tenantid, role])
+  @@schema("public")
+}
+
+model RefreshToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@schema("public")
+}
+
+enum TenantStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DELETED
+
+  @@schema("public")
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+
+  @@schema("public")
+}
+
+model Account {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String   @db.Uuid
+  externalId     String?
+  name           String
+  ownerName      String?
+  industry       String?
+  /// Canonical rep for boards/filters (maps assigned_rep_id in CRM store)
+  assignedRepId  String?  @map("assigned_rep_id")
+  /// HubSpot owner object id — CRM sync only, not used for app filtering
+  hubspotOwnerId String?  @map("hubspot_owner_id")
+  /// Platform User.id (M01 auth) when account is tied to a logged-in owner
+  ownerUserId    String?  @map("owner_user_id")
+  healthScore    Float?   @map("healthscore")
+  crmRecordId    String?  @map("crm_record_id")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  tenant         Tenant   @relation(fields: [tenantid], references: [id], onDelete: Cascade)
+  deals          Deal[]
+
+  @@index([tenantid, name])
+  @@index([tenantid, assignedRepId])
+  @@schema("revenuegraph")
+}
+
+model Deal {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String    @db.Uuid
+  externalId      String?
+  accountId       String?   @db.Uuid
+  ownerId         String?
+  name            String
+  amount          Decimal   @db.Decimal(18, 2)
+  stage           String
+  closeDate       DateTime?
+  quarter         String
+  isWon           Boolean   @default(false)
+  confidenceScore Int?
+  riskScore       Int?
+  riskLabel       String?
+  riskFlags       String[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  account         Account?  @relation(fields: [accountId], references: [id])
+  tenant          Tenant    @relation(fields: [tenantid], references: [id], onDelete: Cascade)
+
+  // Deal boards integration fields
+  ownerName        String?
+  ownerEmail       String?
+  forecastCategory String?
+  probability      Int?
+  dealType         String?
+  aiScore          Int?
+  meddpiccScore    Int?
+  nextStep         String?
+  lastActivity     DateTime?
+  pipeline         String?   @default("default")
+  escalated        Boolean?  @default(false)
+  warningsCount    Int?      @default(0)
+  contactsCount    Int?      @default(1)
+  startDate        DateTime?
+
+  @@index([tenantid, quarter, ownerId])
+  @@index([tenantid, quarter])
+  @@schema("revenuegraph")
+}
+
+model Call {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String   @db.Uuid
+  externalId     String?
+  dealId         String?  @db.Uuid
+  accountId      String?  @db.Uuid
+  ownerName      String?
+  durationSec    Int?
+  occurredAt     DateTime
+  transcriptText String?
+  tenant         Tenant   @relation(fields: [tenantid], references: [id], onDelete: Cascade)
+
+  @@index([tenantid, occurredAt])
+  @@schema("ingestion")
+}
+
+model Dataset {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String                @db.Uuid
+  createdById     String                @db.Uuid
+  name            String
+  description     String?
+  sourceMode      String
+  dataSourceId    String?               @db.Uuid
+  selectedObjects Json
+  selectedFields  Json
+  mappingStatus   String
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  tenant          Tenant                @relation(fields: [tenantid], references: [id], onDelete: Cascade)
+  dataSource      DataSource?           @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
+  relationships   DatasetRelationship[]
+  datasetObjects  DatasetObject[]
+  datasetFields   DatasetField[]
+
+  @@index([tenantid, createdById])
+  @@schema("revenuegraph")
+}
+
+model DatasetRelationship {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  datasetId         String             @db.Uuid
+  sourceObject      String
+  sourceField       String
+  targetObject      String
+  targetField       String
+  status            RelationshipStatus
+  validationMessage String?
+  dataset           Dataset            @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@index([datasetId, status])
+  @@schema("revenuegraph")
+}
+
+model Dashboard {
+  id             String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String                   @db.Uuid
+  ownerId        String                   @db.Uuid
+  datasetId      String?
+  title          String
+  description    String?
+  visibility     DashboardShareVisibility @default(PRIVATE)
+  status         DashboardStatus          @default(DRAFT)
+  isTemplate     Boolean                  @default(false)
+  shareToken     String?                  @unique
+  snapshot       Json?
+  lastSnapshotAt DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  owner          User                     @relation("DashboardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  tenant         Tenant                   @relation(fields: [tenantid], references: [id], onDelete: Cascade)
+  widgets        Widget[]
+
+  @@index([tenantid, ownerId])
+  @@schema("public")
+}
+
+model Widget {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dashboardId String     @db.Uuid
+  type        WidgetType
+  title       String
+  config      Json
+  position    Int
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  dashboard   Dashboard  @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  tenantid    String     @db.Uuid
+
+  @@index([dashboardId, position])
+  @@index([tenantid, dashboardId])
+  @@schema("public")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model coachingrecommendations {
+  recid              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  snapshotid         String   @db.Uuid
+  tenantid           String   @db.Uuid
+  userid             String   @db.Uuid
+  recommendationtext String
+  category           String?
+  confidencescore    Decimal? @db.Decimal
+  generatedat        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantid, snapshotid, generatedat(sort: Desc)], map: "idx_coachingrecommendations_tenant_snapshot")
+  @@schema("dashboards")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model coachingsnapshots {
+  snapshotid       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String   @db.Uuid
+  userid           String   @db.Uuid
+  period           String
+  talkratio        Decimal? @db.Decimal
+  longestmonologue Decimal? @db.Decimal
+  questionrate     Decimal? @db.Decimal
+  interactivity    Decimal? @db.Decimal
+  toptopics        Json?
+  callcount        Int?
+  computedat       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenantid, userid, period], map: "uq_coachingsnapshots_tenant_user_period")
+  @@index([tenantid, userid, period], map: "idx_coachingsnapshots_tenant_user_period")
+  @@schema("dashboards")
+}
+
+/// Per-user dashboard layout persistence (M07). Canonical model — maps to dashboards.dashboardconfigs.
+/// Former duplicate `dashboard_configs` table model removed (unused at runtime).
+model DashboardConfig {
+  configId         String   @id @default(dbgenerated("gen_random_uuid()")) @map("configid") @db.Uuid
+  tenantid         String   @map("tenantid") @db.Uuid
+  userId           String   @map("userid") @db.Uuid
+  layout           Json
+  visibleWidgets   Json?    @map("visiblewidgets")
+  dateRangeDefault String?  @map("daterangedefault")
+  createdAt        DateTime @default(now()) @map("createdat") @db.Timestamptz(6)
+
+  @@unique([tenantid, userId], map: "uq_dashboardconfigs_tenant_user")
+  @@index([tenantid, userId], map: "idx_dashboardconfigs_tenant_user")
+  @@map("dashboardconfigs")
+  @@schema("dashboards")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model DashboardSnapshot {
+  snapshotId      String   @id @default(dbgenerated("gen_random_uuid()")) @map("snapshot_id") @db.Uuid
+  tenantid        String   @map("tenant_id") @db.Uuid
+  periodKey       String   @map("period_key")
+  metricName      String   @map("metric_name")
+  dimensionScopes Json     @map("dimension_scopes")
+  dimensionKey    String   @map("dimension_key")
+  cachedValue     Decimal  @map("cached_value") @db.Decimal(18, 4)
+  computedAt      DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantid, periodKey, metricName, dimensionKey], map: "uq_dashboard_snapshots_tenant_period_metric_dimkey")
+  @@index([tenantid, periodKey, metricName], map: "idx_dashboard_snapshots_tenant_period_metric")
+  @@map("dashboard_snapshots")
+  @@schema("dashboards")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model trainerscenarios {
+  scenarioid         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid           String   @db.Uuid
+  name               String
+  personadescription String?
+  context            String?
+  difficulty         String?
+  scorecardid        String?  @db.Uuid
+  createdby          String   @db.Uuid
+  createdat          DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantid, createdat(sort: Desc)], map: "idx_trainerscenarios_tenant_created")
+  @@schema("dashboards")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model trainersessions {
+  sessionid       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  scenarioid      String    @db.Uuid
+  tenantid        String    @db.Uuid
+  userid          String    @db.Uuid
+  conversation    Json
+  scorecardresult Json?
+  status          String
+  completedat     DateTime? @db.Timestamptz(6)
+  createdat       DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantid, userid, status, createdat(sort: Desc)], map: "idx_trainersessions_tenant_user_status")
+  @@schema("dashboards")
+}
+
+model DataSource {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @db.Uuid
+  sourceName   String
+  sourceType   String
+  accessToken  String?
+  refreshToken String?
+  createdAt    DateTime @default(now())
+
+  objects  DataSourceObject[]
+  datasets Dataset[]
+
+  @@schema("revenuegraph")
+}
+
+model DataSourceObject {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dataSourceId String   @db.Uuid
+  objectName   String
+  displayName  String
+  createdAt    DateTime @default(now())
+
+  dataSource     DataSource        @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  fields         DataSourceField[]
+  datasetObjects DatasetObject[]
+
+  @@map("data_source_objects")
+  @@schema("revenuegraph")
+}
+
+model DataSourceField {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectId    String   @db.Uuid
+  fieldName   String
+  displayName String
+  fieldType   String
+  createdAt   DateTime @default(now())
+
+  object        DataSourceObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  datasetFields DatasetField[]
+
+  @@unique([objectId, fieldName])
+  @@map("data_source_fields")
+  @@schema("revenuegraph")
+}
+
+model DataSourceRelationship {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceObjectId   String
+  targetObjectId   String
+  relationshipType String
+  sourceField      String
+  targetField      String
+  createdAt        DateTime @default(now())
+
+  @@map("data_source_relationships")
+  @@schema("revenuegraph")
+}
+
+model DatasetObject {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  datasetId String @db.Uuid
+  objectId  String @db.Uuid
+
+  dataset          Dataset          @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  dataSourceObject DataSourceObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+
+  @@schema("revenuegraph")
+}
+
+model DatasetField {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  datasetId String @db.Uuid
+  fieldId   String @db.Uuid
+
+  dataset         Dataset         @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  dataSourceField DataSourceField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@schema("revenuegraph")
+}
+
+model Team {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String   @db.Uuid
+  name      String
+  parentId  String?  @db.Uuid
+  parent    Team?    @relation("TeamHierarchy", fields: [parentId], references: [id])
+  children  Team[]   @relation("TeamHierarchy")
+  managerId String?  @db.Uuid
+  members   String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantid])
+  @@schema("revenuegraph")
+}
+
+model DashboardAccess {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid    String   @db.Uuid
+  dashboardId String   @db.Uuid
+  userId      String   @db.Uuid
+  grantedBy   String
+  canView     Boolean  @default(true)
+  canEdit     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@unique([dashboardId, userId])
+  @@index([tenantid, dashboardId])
+  @@schema("revenuegraph")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  SALES_REP
+  ANALYST
+  EXECUTIVE
+
+  @@schema("public")
+}
+
+enum RelationshipStatus {
+  AUTO_DETECTED
+  MANUAL_OVERRIDE
+  REJECTED
+
+  @@schema("public")
+}
+
+enum DashboardShareVisibility {
+  PRIVATE
+  TEAM
+  LINK
+
+  @@schema("public")
+}
+
+enum WidgetType {
+  KPI
+  BAR
+  LINE
+  PIE
+  FUNNEL
+  AREA
+  COLUMN
+  DONUT
+  GAUGE
+  TABLE
+  PERFORMANCE
+  ATTAINMENT_TREND
+  FORECAST
+  TRENDS
+  CHANGES
+
+  @@schema("public")
+}
+
+enum DashboardStatus {
+  DRAFT
+  PUBLISHED
+
+  @@schema("public")
+}
+
+// ─────────────────────────────────────────────────────────────
+// M-01: Capture & Transcription
+// ─────────────────────────────────────────────────────────────
+
+/// A recorded call or meeting registered in the platform (CT-01, CT-02, CT-13)
+model CallRecord {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid String @db.Uuid
+
+  // Metadata fields shown on Call Detail header (CT-13)
+  title           String
+  callDate        DateTime
+  durationSeconds Int      @default(0)
+  callType        String // inbound | outbound | meeting
+  callSource      String // zoom | teams | meet | dialer | manual
+  participants    String[] // display names / emails of all attendees
+  callOwner       String // userId of the rep who owns the call
+  accountId       String?  @db.Uuid // linked CRM account
+  opportunityId   String?  @db.Uuid // linked CRM opportunity
+
+  // Audio storage (CT-02, CT-17)
+  audioUrl String? // signed URL to stored recording
+
+  // Transcription lifecycle (CT-01, CT-09, US-09, US-31)
+  transcriptStatus String  @default("pending")
+  // pending | processing | completed | failed | skipped
+  failureReason    String? // populated when status = failed (CT-09)
+  skipReason       String? // populated when status = skipped (US-09) e.g. 'below_minimum_duration' | 'transcription_disabled'
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transcript        Transcript?
+  notes             CallNote[]
+  shares            CallShare[]
+  extractionResults AiExtractionResult[]
+  themeMappings     ThemeCallMapping[]
+  themeQuotes       ThemeQuote[]
+
+  @@index([tenantid])
+  @@index([tenantid, callDate])
+  @@index([tenantid, transcriptStatus])
+  @@map("call_records")
+  @@schema("ingestion")
+}
+
+/// Full transcript associated with a call (CT-03, CT-04, CT-18)
+model Transcript {
+  id       String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid String     @db.Uuid
+  callId   String     @unique @db.Uuid
+  call     CallRecord @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  // Full text used for full-text search (CT-05)
+  fullText String
+
+  // AI-generated fields (CT-14, CT-15, CT-24)
+  summary       String?
+  keyHighlights Json?
+  // [{label: "pricing", text: "...", timestampMs: 45000}]
+  nextSteps     String[]
+  talkRatio     Json?
+  // {rep: {speakerLabel: "A", percentage: 0.42}, customer: {speakerLabel: "B", percentage: 0.58}}
+
+  // AssemblyAI job tracking
+  assemblyAiJobId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  utterances Utterance[]
+
+  @@index([tenantid])
+  @@index([tenantid, callId])
+  // GIN index for full-text search (US-06) — requires PostgreSQL extension
+  // Run: CREATE INDEX idx_transcripts_fulltext ON transcripts USING GIN(to_tsvector('english', "fullText"));
+  @@map("transcripts")
+  @@schema("ingestion")
+}
+
+/// A single speaker turn within a transcript (CT-03, CT-11, CT-12, CT-18, CT-19, CT-20)
+model Utterance {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transcriptId String     @db.Uuid
+  transcript   Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  // tenantId mirrors the parent transcript for RLS enforcement (US-32)
+  tenantid String @db.Uuid
+
+  speaker         String // "Rep" | "Customer" | "Speaker 1" | "Speaker 2" (US-03 fallback)
+  text            String // utterance text — PII-redacted before storage (US-04, US-16)
+  originalText    String? // raw pre-redaction text retained for internal audit only
+  startMs         Int // start position in audio (milliseconds) (CT-19)
+  endMs           Int // end position in audio (milliseconds)
+  confidence      Float // 0.0 – 1.0 from AssemblyAI (CT-12)
+  isLowConfidence Boolean @default(false)
+  // true when confidence < 0.80 (CT-12, CT-20)
+
+  sequenceIndex Int // ordering within transcript
+
+  @@index([tenantid])
+  @@index([transcriptId])
+  @@index([transcriptId, sequenceIndex])
+  // GIN index for keyword search within utterances (US-06)
+  // Run: CREATE INDEX idx_utterances_text ON utterances USING GIN(to_tsvector('english', "text"));
+  @@map("utterances")
+  @@schema("ingestion")
+}
+
+/// Notes added by a rep or manager on a specific call (CT-22)
+model CallNote {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String     @db.Uuid
+  callId    String     @db.Uuid
+  call      CallRecord @relation(fields: [callId], references: [id], onDelete: Cascade)
+  authorId  String     @db.Uuid // userId of the note author
+  content   String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([callId])
+  @@index([tenantid])
+  @@map("call_notes")
+  @@schema("ingestion")
+}
+
+/// Record of sharing a call with another user or team (CT-23)
+model CallShare {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String     @db.Uuid
+  callId         String     @db.Uuid
+  call           CallRecord @relation(fields: [callId], references: [id], onDelete: Cascade)
+  sharedByUserId String     @db.Uuid
+  sharedWithId   String     @db.Uuid // userId or teamId
+  sharedWithType String // "user" | "team"
+  sharedAt       DateTime   @default(now())
+
+  @@unique([callId, sharedWithId, sharedWithType])
+  @@index([tenantid])
+  @@index([callId])
+  @@map("call_shares")
+  @@schema("ingestion")
+}
+
+// ────────────────────────────────────────────────────────────
+/// Immutable audit trail of all significant system and user events (US-30)
+/// Records: config changes, job events, call shares, transcript edits
+model AuditLog {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid String @db.Uuid
+
+  // Who and what
+  actorId    String? @db.Uuid // userId of the person who triggered the action (null = system)
+  actorType  String  @default("system") // "user" | "system" | "worker"
+  action     String // e.g. 'transcription.completed' | 'pii.redacted' | 'call.shared'
+  entityType String // e.g. 'CallRecord' | 'Transcript' | 'CallShare'
+  entityId   String // ID of the affected entity
+
+  // Context
+  meta Json? // arbitrary additional data (e.g. { reason, oldValue, newValue })
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantid, createdAt(sort: Desc)])
+  @@index([tenantid, entityId])
+  @@index([tenantid, action])
+  @@map("audit_logs")
+  @@schema("public")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Platform Core: Native Connectors (shared across all modules)
+// ─────────────────────────────────────────────────────────────
+
+/// OAuth integration record for external services (HubSpot, Google, Zoom, Teams, Gmail)
+model Integration {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String    @db.Uuid
+  provider     String // hubspot | google_calendar | zoom | teams | gmail
+  status       String    @default("disconnected") // connected | disconnected | expired
+  accountEmail String? // email/account used for this integration
+  accountName  String? // display name of the connected account
+  accessToken  String? // encrypted OAuth access token
+  refreshToken String? // encrypted OAuth refresh token
+  tokenExpiry  DateTime?
+  scopes       String[] // granted OAuth scopes
+  metadata     Json? // provider-specific metadata (e.g. hubspot portal ID)
+  connectedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([tenantid, provider])
+  @@index([tenantid])
+  @@map("integrations")
+  @@schema("public")
+}
+
+// ─────────────────────────────────────────────────────────────
+// M03: AI Summaries & GenAI
+// ─────────────────────────────────────────────────────────────
+
+model AiBrief {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String   @db.Uuid
+  briefType        String
+  entityId         String
+  generatedSummary String?  @db.Text
+  generationStatus String?  @default("pending")
+  sourceReferences Json?
+  llmModel         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([tenantid, briefType, entityId])
+  @@index([tenantid, briefType])
+  @@map("ai_briefs")
+  @@schema("public")
+}
+
+model AiChatHistory {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String   @db.Uuid
+  userId    String?  @db.Uuid
+  question  String   @db.Text
+  answer    String   @db.Text
+  citations Json?
+  createdAt DateTime @default(now())
+
+  @@index([tenantid, createdAt])
+  @@map("ai_chat_history")
+  @@schema("public")
+}
+
+// ─────────────────────────────────────────────────────────────
+// M-18: AI Data Extractor
+// ─────────────────────────────────────────────────────────────
+
+/// Extraction field definition — a "question" the AI answers for every transcript
+/// Phase 1: Users create these in the Extraction Library
+model AiExtractionField {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid String @db.Uuid
+
+  // The question / field definition
+  question       String // e.g. "What competitor was mentioned?"
+  fieldLabel     String // display label e.g. "Competitor Mentioned"
+  fieldName      String // machine name, snake_case e.g. "competitor_mentioned"
+  dataType       String // "text" | "boolean" | "number" | "date" | "enum"
+  enumOptions    String[] // only used when dataType = "enum"
+  extractionHint String? // optional hint to guide the AI extraction
+
+  // CRM mapping (optional)
+  crmObject String? // "Deal" | "Account" | "Contact"
+  crmField  String? // e.g. "Competitor__c"
+
+  // Lifecycle
+  isActive     Boolean @default(false)
+  displayOrder Int     @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdByUserId String?
+
+  results AiExtractionResult[]
+
+  @@index([tenantid])
+  @@index([tenantid, isActive])
+  @@map("m18_ai_extraction_fields")
+  @@schema("public")
+}
+
+/// Extraction result — the AI's answer to a field question for a specific call
+/// Phase 3: Auto-populated when transcription completes
+model AiExtractionResult {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid String @db.Uuid
+
+  fieldId String            @db.Uuid
+  field   AiExtractionField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  callId String     @db.Uuid
+  call   CallRecord @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  // Extracted data
+  extractedValue      String? // null = "Not yet detected"
+  rawEvidence         String? // verbatim quote from transcript
+  evidenceTimestampMs Int? // milliseconds into the call (for audio seek)
+  confidenceScore     Float? // 0.0 – 1.0
+
+  // Override tracking
+  isManualOverride   Boolean @default(false)
+  overriddenByUserId String?
+
+  extractedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([fieldId, callId])
+  @@index([tenantid, callId])
+  @@index([tenantid, fieldId])
+  @@map("m18_ai_extraction_results")
+  @@schema("public")
+}
+
+// ─────────────────────────────────────────────────────────────
+// M06 — Forecasting & Prediction (centralized; was module-local Prisma)
+// ─────────────────────────────────────────────────────────────
+
+model ForecastPeriod {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid           String    @db.Uuid
+  name               String
+  startDate          DateTime
+  endDate            DateTime
+  revenueTarget      Float
+  status             String
+  isLocked           Boolean   @default(false)
+  submissionDeadline DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  snapshots          AiForecastSnapshot[]
+  submissions        ForecastSubmission[]
+  executiveSnapshots ForecastExecutiveSnapshot[]
+  predictionJobs     M06PredictionJob[]
+
+  @@index([tenantid, status])
+  @@map("forecast_periods")
+  @@schema("public")
+}
+
+model AiForecastSnapshot {
+  snapshotId          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid            String   @db.Uuid
+  periodId            String   @db.Uuid
+  predictedAmount     Float
+  confidenceRangeLow  Float
+  confidenceRangeHigh Float
+  modelInputs         Json
+  inputPipelineValue  Float?
+  regionBreakdown     Json?
+  computedAt          DateTime @default(now())
+  idempotencyKey      String   @unique
+
+  period ForecastPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([tenantid, periodId, computedAt])
+  @@map("ai_forecast_snapshots")
+  @@schema("public")
+}
+
+model ForecastSubmission {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String    @db.Uuid
+  periodId         String    @db.Uuid
+  repUserId        String    @db.Uuid
+  lob              String
+  version          Int       @default(1)
+  commitForecast   Float
+  bestCaseForecast Float?
+  notes            String?
+  status           String
+  submittedAt      DateTime?
+  managerOverride  Float?
+  managerComment   String?
+  managerId        String?   @db.Uuid
+  managerName      String?
+  approvedAt       DateTime?
+  reopenedAt       DateTime?
+  overriddenAt     DateTime?
+  committedDealIds Json?
+  idempotencyKey   String?   @unique
+  dealId           String?   @db.Uuid
+  bestCaseState    String    @default("editable")
+  commitState      String    @default("editable")
+  approvedBestCase Float?
+  approvedCommit   Float?
+  overriddenBy     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  period ForecastPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([tenantid, periodId, repUserId])
+  @@index([tenantid, periodId, repUserId, dealId])
+  @@map("forecast_submissions")
+  @@schema("public")
+}
+
+model ForecastAuditLog {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid             String   @db.Uuid
+  forecastSubmissionId String
+  action               String
+  actorId              String   @db.Uuid
+  actorName            String?
+  actorRole            String
+  metadata             Json?
+  status               String?
+  notes                String?
+  createdAt            DateTime @default(now())
+
+  @@map("forecast_audit_log")
+  @@schema("public")
+}
+
+model ForecastExecutiveSnapshot {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String   @db.Uuid
+  periodId       String   @db.Uuid
+  baseline       String?
+  region         String?
+  submissionId   String?  @db.Uuid
+  payload        Json
+  computedAt     DateTime @default(now())
+  idempotencyKey String   @unique
+
+  period ForecastPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([tenantid, periodId, computedAt])
+  @@map("forecast_executive_snapshots")
+  @@schema("public")
+}
+
+model M06PredictionJob {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String    @db.Uuid
+  periodId       String    @db.Uuid
+  status         String
+  trigger        String
+  idempotencyKey String    @unique
+  error          String?
+  createdAt      DateTime  @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+
+  period ForecastPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+
+  @@index([tenantid, periodId, status])
+  @@map("m06_prediction_jobs")
+  @@schema("public")
+}
+
+model PipelineCoverageMetrics {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid              String   @db.Uuid
+  periodId              String   @db.Uuid
+  openPipelineValue     Float
+  weightedPipelineValue Float
+  closedWonAmount       Float
+  coverageRatio         Float
+  computedAt            DateTime @default(now())
+
+  @@map("pipeline_coverage_metrics")
+  @@schema("public")
+}
+
+model HistoricalConversionRate {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid           String   @db.Uuid
+  fromStage          String
+  toStage            String
+  conversionRate     Float
+  sampleSize         Int
+  computedFromPeriod String
+  periodName         String?
+  computedAt         DateTime @default(now())
+
+  @@map("historical_conversion_rates")
+  @@schema("public")
+}
+
+model ForecastNotification {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid      String   @db.Uuid
+  repId         String
+  repName       String?
+  submissionId  String   @db.Uuid
+  actionType    String // 'approved' | 'reopened' | 'overridden'
+  requestType   String? // 'best_case' | 'commit' | 'both'
+  dealName      String
+  finalValue    Float?
+  bestCaseValue Float?
+  commitValue   Float?
+  isSeen        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([tenantid, repId, isSeen])
+  @@map("forecast_notifications")
+  @@schema("public")
+}
+
+model PipelineValuesCache {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid      String   @db.Uuid
+  repId         String
+  dealId        String?  @db.Uuid
+  periodId      String   @db.Uuid
+  pipelineValue Float
+  computedAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantid, periodId, repId, dealId])
+  @@map("pipeline_values_cache")
+  @@schema("public")
+}
+
+model CrmDeal {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid                String    @db.Uuid
+  dealName                String
+  stage                   String
+  amount                  Float
+  closeDate               DateTime
+  probability             Float?
+  isClosedWon             Boolean   @default(false)
+  isClosedLost            Boolean   @default(false)
+  region                  String?
+  lob                     String?
+  repUserId               String?   @db.Uuid
+  hubspotId               String?
+  lastActivityDate        DateTime?
+  riskReason              String?
+  source                  String    @default("seed")
+  createdBy               String    @default("system")
+  manualForecast          Float?
+  manualForecastUpdatedAt DateTime?
+  aiPredictionScore       Float?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([tenantid, hubspotId])
+  @@map("crm_deals")
+  @@schema("public")
+}
+
+/// M06 forecast module users (table `users` — distinct from platform `User`)
+model ForecastUser {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String   @db.Uuid
+  name      String
+  email     String   @unique
+  password  String
+  role      String
+  repId     String?
+  managerId String?  @db.Uuid
+  region    String?
+  teamName  String?
+  createdAt DateTime @default(now())
+
+  @@map("users")
+  @@schema("public")
+}
+
+model Quota {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid   String   @db.Uuid
+  periodId   String   @db.Uuid
+  repUserId  String   @db.Uuid
+  amount     Float
+  aprTarget  Float?
+  mayTarget  Float?
+  junTarget  Float?
+  managerId  String?  @db.Uuid
+  assignedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([tenantid, periodId, repUserId])
+  @@map("quotas")
+  @@schema("public")
+}
+
+model ForecastBoard {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String    @db.Uuid
+  name            String
+  scope           String?
+  periodType      String
+  activePeriod    String
+  periodStartDate DateTime?
+  periodEndDate   DateTime?
+  description     String?
+  status          String    @default("draft")
+  isPublished     Boolean   @default(false)
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  columns        BoardColumn[]
+  crmMapping     BoardCrmMapping?
+  reminderConfig BoardReminderConfig?
+  exclusions     BoardExclusion[]
+
+  @@index([tenantid, activePeriod, status])
+  @@map("forecast_boards")
+  @@schema("public")
+}
+
+model BoardColumn {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String   @db.Uuid
+  boardId        String   @db.Uuid
+  label          String
+  type           String
+  submissionMode String?
+  sortOrder      Int      @default(0)
+  isVisible      Boolean  @default(true)
+  isDeleted      Boolean  @default(false)
+  infoTooltip    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  board ForecastBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([tenantid, boardId, sortOrder])
+  @@map("m06_board_columns")
+  @@schema("public")
+}
+
+model BoardExclusion {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid   String   @db.Uuid
+  boardId    String   @db.Uuid
+  repUserId  String   @db.Uuid
+  excludedBy String?
+  excludedAt DateTime @default(now())
+  isActive   Boolean  @default(true)
+
+  board ForecastBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, repUserId])
+  @@map("m06_board_exclusions")
+  @@schema("public")
+}
+
+model BoardCrmMapping {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid              String   @db.Uuid
+  boardId               String   @unique @db.Uuid
+  crmConnection         String?
+  forecastCategoryField String?
+  pipelineSource        String?
+  closedSource          String?
+  closeDateField        String?
+  amountField           String?
+  columnMappings        Json?
+  stageMappings         Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  board ForecastBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@map("m06_board_crm_mappings")
+  @@schema("public")
+}
+
+model BoardReminderConfig {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String   @db.Uuid
+  boardId          String   @unique @db.Uuid
+  frequency        String?
+  sendDay          String?
+  sendTime         String?
+  timezoneBehavior String?
+  inAppEnabled     Boolean  @default(true)
+  slackEnabled     Boolean  @default(false)
+  autoDismiss      Boolean  @default(false)
+  messageTemplate  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  board ForecastBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@map("m06_board_reminder_configs")
+  @@schema("public")
+}
+
+model BoardSubmissionAnnotation {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @db.Uuid
+  boardId      String   @db.Uuid
+  submissionId String   @db.Uuid
+  managerId    String   @db.Uuid
+  content      String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([boardId, submissionId])
+  @@map("m06_board_submission_annotations")
+  @@schema("public")
+}
+
+// ─────────────────────────────────────────────────────────────
+// M08 — Sales Engagement (canonical Prisma mappings)
+// ─────────────────────────────────────────────────────────────
+
+model SalesPlay {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid          String             @db.Uuid
+  name              String
+  steps             Json
+  triggerConditions Json
+  createdBy         String             @db.Uuid
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime           @updatedAt @db.Timestamptz(6)
+  enrollments       PlayEnrollment[]
+  adherenceLogs     PlayAdherenceLog[]
+
+  @@index([tenantid, isActive])
+  @@map("sales_plays")
+  @@schema("public")
+}
+
+model PlayEnrollment {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String               @db.Uuid
+  playId         String               @db.Uuid
+  dealId         String               @db.Uuid
+  userId         String               @db.Uuid
+  currentStep    Int                  @default(1)
+  status         String               @default("active")
+  triggerEventId String?              @db.Uuid
+  enrolledAt     DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime             @updatedAt @db.Timestamptz(6)
+  play           SalesPlay            @relation(fields: [playId], references: [id], onDelete: Cascade)
+  completions    PlayStepCompletion[]
+  notes          PlayNote[]
+  adherenceLogs  PlayAdherenceLog[]
+
+  @@unique([tenantid, playId, dealId, triggerEventId])
+  @@index([tenantid, dealId, status])
+  @@index([tenantid, userId, status])
+  @@map("play_enrollments")
+  @@schema("public")
+}
+
+model PlayStepCompletion {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String         @db.Uuid
+  enrollmentId String         @db.Uuid
+  stepId       Int
+  completedBy  String         @db.Uuid
+  completedAt  DateTime       @default(now()) @db.Timestamptz(6)
+  notes        String?
+  enrollment   PlayEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@map("play_step_completions")
+  @@schema("public")
+}
+
+model PlayNote {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String         @db.Uuid
+  enrollmentId String         @db.Uuid
+  userId       String         @db.Uuid
+  noteText     String
+  createdAt    DateTime       @default(now()) @db.Timestamptz(6)
+  enrollment   PlayEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@map("play_notes")
+  @@schema("public")
+}
+
+model PlayAdherenceLog {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String         @db.Uuid
+  enrollmentId   String         @db.Uuid
+  userId         String         @db.Uuid
+  playId         String         @db.Uuid
+  adherenceScore Float
+  calculatedAt   DateTime       @default(now()) @db.Timestamptz(6)
+  play           SalesPlay      @relation(fields: [playId], references: [id], onDelete: Cascade)
+  enrollment     PlayEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@map("play_adherence_logs")
+  @@schema("public")
+}
+
+/// M08 Engage To-Do task (table `tasks` — not M04 deal tasks)
+model Task {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid    String   @map("tenant_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  type        String
+  description String
+  dueDate     DateTime @map("due_date") @db.Timestamptz(6)
+  priority    Int      @default(2)
+  source      String
+  sourceId    String?  @map("source_id")
+  status      String   @default("pending")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantid, source, sourceId])
+  @@index([tenantid, userId, status, dueDate])
+  @@map("tasks")
+  @@schema("public")
+}
+
+model Workflow {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid          String   @map("tenant_id") @db.Uuid
+  name              String
+  description       String?
+  triggerType       String   @map("trigger_type")
+  triggerConditions Json     @map("trigger_conditions")
+  definition        Json
+  version           Int      @default(1)
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantid, isActive])
+  @@map("workflows")
+  @@schema("public")
+}
+
+model WorkflowRun {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String   @map("tenant_id") @db.Uuid
+  workflowId       String   @map("workflow_id") @db.Uuid
+  dealId           String?  @map("deal_id") @db.Uuid
+  contactId        String?  @map("contact_id") @db.Uuid
+  status           String   @default("running")
+  currentStepIndex Int      @default(0) @map("current_step_index")
+  triggerPayload   Json     @default("{}") @map("trigger_payload")
+  variables        Json     @default("{}")
+  logs             Json     @default("[]")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantid, workflowId, status])
+  @@map("workflow_runs")
+  @@schema("public")
+}
+
+model Approval {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String   @map("tenant_id") @db.Uuid
+  runId            String?  @map("run_id") @db.Uuid
+  workflowId       String?  @map("workflow_id") @db.Uuid
+  type             String
+  title            String
+  description      String
+  status           String   @default("pending")
+  approverId       String?  @map("approver_id") @db.Uuid
+  thresholdDetails Json?    @map("threshold_details")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantid, status])
+  @@map("approvals")
+  @@schema("public")
+}
+
+model WorkflowException {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String    @map("tenant_id") @db.Uuid
+  runId        String?   @map("run_id") @db.Uuid
+  workflowId   String?   @map("workflow_id") @db.Uuid
+  errorCode    String    @map("error_code")
+  errorMessage String    @map("error_message")
+  stackTrace   String?   @map("stack_trace")
+  resolved     Boolean   @default(false)
+  resolvedAt   DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantid, resolved])
+  @@map("workflow_exceptions")
+  @@schema("public")
+}
+
+model IntegrationState {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String   @map("tenant_id") @db.Uuid
+  provider  String
+  status    String   @default("connected")
+  config    Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantid, provider])
+  @@map("integration_states")
+  @@schema("public")
+}
+
+model WorkflowAuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid   String   @map("tenant_id") @db.Uuid
+  workflowId String?  @map("workflow_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantid, workflowId])
+  @@map("workflow_audit_logs")
+  @@schema("public")
+}
+
+// ─────────────────────────────────────────────────────────────
+// M10 — Data & Compliance / Revenue Graph / Data Cloud
+// ─────────────────────────────────────────────────────────────
+
+model M10Account {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String               @db.Uuid
+  crmAccountId     String?
+  name             String
+  domain           String?
+  region           String?
+  industry         String?
+  crmSource        String?
+  crmSyncedAt      DateTime?            @db.Timestamptz(6)
+  createdAt        DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @db.Timestamptz(6)
+  deals            M10Deal[]
+  contacts         M10Contact[]
+  activities       M10Activity[]
+  interactionLinks M10InteractionLink[]
+
+  @@index([tenantid])
+  @@index([tenantid, domain])
+  @@map("m10_accounts")
+  @@schema("revenuegraph")
+}
+
+model M10Contact {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String               @db.Uuid
+  crmContactId     String?
+  accountId        String?              @db.Uuid
+  email            String
+  name             String?
+  title            String?
+  crmSource        String?
+  crmSyncedAt      DateTime?            @db.Timestamptz(6)
+  createdAt        DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @db.Timestamptz(6)
+  account          M10Account?          @relation(fields: [accountId], references: [id])
+  dealContacts     M10DealContact[]
+  interactionLinks M10InteractionLink[]
+  activities       M10Activity[]
+
+  @@index([tenantid, email])
+  @@map("m10_contacts")
+  @@schema("revenuegraph")
+}
+
+model M10Deal {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String               @db.Uuid
+  crmDealId        String?
+  accountId        String?              @db.Uuid
+  name             String
+  stage            String?
+  amount           Float?
+  currency         String?              @default("USD")
+  closeDate        DateTime?            @db.Timestamptz(6)
+  ownerId          String?
+  crmSource        String?
+  crmSyncedAt      DateTime?            @db.Timestamptz(6)
+  isActive         Boolean              @default(true)
+  createdAt        DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @db.Timestamptz(6)
+  account          M10Account?          @relation(fields: [accountId], references: [id])
+  dealContacts     M10DealContact[]
+  interactionLinks M10InteractionLink[]
+  activities       M10Activity[]
+
+  @@index([tenantid, accountId, isActive])
+  @@map("m10_deals")
+  @@schema("revenuegraph")
+}
+
+model M10DealContact {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String     @db.Uuid
+  dealId    String     @db.Uuid
+  contactId String     @db.Uuid
+  role      String?
+  createdAt DateTime   @default(now()) @db.Timestamptz(6)
+  deal      M10Deal    @relation(fields: [dealId], references: [id])
+  contact   M10Contact @relation(fields: [contactId], references: [id])
+
+  @@unique([tenantid, dealId, contactId])
+  @@map("m10_deal_contacts")
+  @@schema("revenuegraph")
+}
+
+model M10Activity {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String               @db.Uuid
+  idempotencyKey   String               @unique
+  sourceType       String
+  sourcePlatform   String?
+  sourceRecordId   String?
+  occurredAt       DateTime             @db.Timestamptz(6)
+  accountId        String?              @db.Uuid
+  contactId        String?              @db.Uuid
+  dealId           String?              @db.Uuid
+  ownerId          String?
+  status           String               @default("received")
+  transcriptId     String?              @db.Uuid
+  calendarEventId  String?
+  emailThreadId    String?
+  createdAt        DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @db.Timestamptz(6)
+  account          M10Account?          @relation(fields: [accountId], references: [id])
+  contact          M10Contact?          @relation(fields: [contactId], references: [id])
+  deal             M10Deal?             @relation(fields: [dealId], references: [id])
+  interactionLinks M10InteractionLink[]
+
+  @@index([tenantid, status])
+  @@map("m10_activities")
+  @@schema("revenuegraph")
+}
+
+model M10InteractionLink {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String      @db.Uuid
+  activityId      String      @db.Uuid
+  entityType      String
+  entityId        String      @db.Uuid
+  linkedAccountId String?     @db.Uuid
+  linkedContactId String?     @db.Uuid
+  linkedDealId    String?     @db.Uuid
+  confidence      String
+  signals         Json        @default("[]")
+  explanation     Json        @default("{}")
+  aiAssisted      Boolean     @default(false)
+  createdAt       DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime    @updatedAt @db.Timestamptz(6)
+  activity        M10Activity @relation(fields: [activityId], references: [id])
+  account         M10Account? @relation(fields: [linkedAccountId], references: [id])
+  contact         M10Contact? @relation(fields: [linkedContactId], references: [id])
+  deal            M10Deal?    @relation(fields: [linkedDealId], references: [id])
+
+  @@unique([tenantid, activityId, entityType, entityId])
+  @@map("m10_interaction_links")
+  @@schema("revenuegraph")
+}
+
+model M10LinkDecisionLog {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String   @db.Uuid
+  activityId     String   @db.Uuid
+  idempotencyKey String
+  candidatesJson Json
+  selectedLinks  Json
+  rejectedLinks  Json
+  aiRequestSent  Boolean  @default(false)
+  aiResponseJson Json?
+  processingMs   Int?
+  outcome        String
+  failureReason  String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantid, activityId])
+  @@map("m10_link_decision_logs")
+  @@schema("revenuegraph")
+}
+
+model M10MappingRuleSet {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String   @db.Uuid
+  name      String
+  isActive  Boolean  @default(true)
+  config    Json     @default("{}")
+  createdBy String?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([tenantid, isActive])
+  @@map("m10_mapping_rule_sets")
+  @@schema("revenuegraph")
+}
+
+model M10CrmSyncState {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid      String    @db.Uuid
+  crmSource     String
+  entityType    String
+  lastSyncedAt  DateTime? @db.Timestamptz(6)
+  lastCursor    String?
+  status        String    @default("idle")
+  errorMessage  String?
+  recordsSynced Int       @default(0)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(6)
+
+  @@unique([tenantid, crmSource, entityType])
+  @@map("m10_crm_sync_states")
+  @@schema("revenuegraph")
+}
+
+model M10CompliancePolicy {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String   @db.Uuid
+  name           String
+  description    String?
+  channel        String // email | call | sms | data_export
+  region         String? // GDPR | CCPA | GLOBAL
+  regionFamily   String   @default("GLOBAL") // TDD §6.1 region_family
+  ruleDefinition Json     @default("{}") // TDD §6.1 rule_definition
+  isActive       Boolean  @default(true)
+  version        Int      @default(1) // TDD FR-5 versioning
+  createdBy      String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(6)
+
+  auditEntries M10ComplianceAuditEntry[]
+
+  @@index([tenantid, isActive])
+  @@index([tenantid, channel])
+  @@map("m10_compliance_policies")
+  @@schema("revenuegraph")
+}
+
+model M10CrmOptOut {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @db.Uuid
+  contactEmail String
+  channel      String // email | call | sms
+  isOptedOut   Boolean  @default(false)
+  lastSyncedAt DateTime @default(now()) @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([tenantid, contactEmail, channel])
+  @@index([tenantid, contactEmail])
+  @@index([tenantid, isOptedOut])
+  @@map("m10_crm_optouts")
+  @@schema("revenuegraph")
+}
+
+model M10ConsentLog {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @db.Uuid
+  contactEmail String
+  consentType  String // e.g. email_marketing | data_processing
+  status       String // granted | revoked
+  source       String // web_form | manual_crm | opt_in_email | api
+  loggedAt     DateTime @default(now()) @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantid, contactEmail])
+  @@index([tenantid, status])
+  @@map("m10_consent_logs")
+  @@schema("revenuegraph")
+}
+
+model M10ComplianceAuditEntry {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid           String   @db.Uuid
+  correlationId      String   @unique
+  recipientEmail     String
+  channel            String
+  decision           String // allow | block
+  reasonCode         String // POLICY_PASSED | CRM_OPTED_OUT | GDPR_CONSENT_REQUIRED | CCPA_RESTRICTED | FAIL_CLOSED_MISSING_DATA
+  explanation        String?
+  triggeredPolicyId  String?  @db.Uuid
+  evaluationMetadata Json     @default("{}")
+  createdAt          DateTime @default(now()) @db.Timestamptz(6)
+
+  policy M10CompliancePolicy? @relation(fields: [triggeredPolicyId], references: [id])
+
+  @@index([tenantid])
+  @@index([tenantid, recipientEmail])
+  @@index([tenantid, decision])
+  @@map("m10_compliance_audit_entries")
+  @@schema("revenuegraph")
+}
+
+model M10GdprDataSubjectRequest {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String    @db.Uuid
+  contactEmail   String
+  requestType    String // erasure | portability | access | rectification
+  status         String    @default("pending") // pending | in_progress | completed | rejected
+  requestDate    DateTime  @default(now()) @db.Timestamptz(6)
+  completionDate DateTime? @db.Timestamptz(6)
+  details        Json?
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+
+  @@index([tenantid, contactEmail])
+  @@index([tenantid, status])
+  @@map("m10_gdpr_data_subject_requests")
+  @@schema("revenuegraph")
+}
+
+model M10GdprProcessingRecord {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String   @db.Uuid
+  purpose         String
+  dataCategories  String[]
+  lawfulBasis     String
+  retentionPeriod String
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([tenantid])
+  @@map("m10_gdpr_processing_records")
+  @@schema("revenuegraph")
+}
+
+model M10GdprDataBreachRecord {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid      String   @db.Uuid
+  incidentDate  DateTime @db.Timestamptz(6)
+  detectionDate DateTime @db.Timestamptz(6)
+  description   String
+  affectedData  String[]
+  status        String   @default("investigating") // investigating | mitigated | reported
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([tenantid])
+  @@map("m10_gdpr_data_breach_records")
+  @@schema("revenuegraph")
+}
+
+model M10EPrivacyConsent {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @db.Uuid
+  contactEmail String
+  channel      String // email | call | sms
+  purpose      String // marketing | tracking | essential
+  status       String // granted | revoked
+  source       String // cookie_banner | preference_center
+  loggedAt     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantid, contactEmail])
+  @@map("m10_eprivacy_consents")
+  @@schema("revenuegraph")
+}
+
+model M10SuppressionEntry {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @db.Uuid
+  contactEmail String
+  reason       String // global_dnc | eprivacy_revoke | spam_complaint
+  addedAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenantid, contactEmail])
+  @@map("m10_suppression_entries")
+  @@schema("revenuegraph")
+}
+
+model M10GdprDeletion {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String   @db.Uuid
+  dsarId         String
+  contactEmail   String
+  tablesAffected String[]
+  deletedRows    Int      @default(0)
+  executionDate  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantid, dsarId])
+  @@map("m10_gdpr_deletions")
+  @@schema("revenuegraph")
+}
+
+model M10DataCloudConnection {
+  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String                  @db.Uuid
+  destination     String
+  destinationName String                  @default("default")
+  config          Json                    @default("{}")
+  isActive        Boolean                 @default(true)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime                @updatedAt @db.Timestamptz(6)
+  exportRuns      M10DataCloudExportRun[]
+
+  @@index([tenantid])
+  @@map("m10_data_cloud_connections")
+  @@schema("revenuegraph")
+}
+
+model M10DataCloudExportRun {
+  id           String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String                 @db.Uuid
+  connectionId String                 @db.Uuid
+  status       String                 @default("pending")
+  startedAt    DateTime               @default(now()) @db.Timestamptz(6)
+  completedAt  DateTime?              @db.Timestamptz(6)
+  errorMessage String?
+  rowsExported Int                    @default(0)
+  filePaths    Json?
+  connection   M10DataCloudConnection @relation(fields: [connectionId], references: [id])
+
+  @@index([tenantid])
+  @@map("m10_data_cloud_export_runs")
+  @@schema("revenuegraph")
+}
+
+model M10DataCloudCheckpoint {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid   String   @db.Uuid
+  domain     String
+  lastCursor String?
+  updatedAt  DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([tenantid, domain])
+  @@map("m10_data_cloud_checkpoints")
+  @@schema("revenuegraph")
+}
+
+// ── Live Call Assist (Smart Call) — Postgres persistence (replaces Supabase) ──
+model LiveCallSession {
+  id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid      String            @default("00000000-0000-0000-0000-000000000001") @db.Uuid
+  sessionName   String?           @map("session_name")
+  salesRepName  String?           @default("Sales Rep") @map("sales_rep_name")
+  clientName    String?           @default("Client") @map("client_name")
+  contactId     String?           @map("contact_id")
+  dealId        String?           @map("deal_id") @db.Uuid
+  dealCompany   String?           @map("deal_company")
+  status        String            @default("active")
+  startedAt     DateTime          @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt       DateTime?         @map("ended_at") @db.Timestamptz(6)
+  finalSummary  String?           @map("final_summary") @db.Text
+  totalSegments Int               @default(0) @map("total_segments")
+  transcript    Json              @default("[]")
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  summaries     LiveCallSummary[]
+
+  @@index([tenantid, status])
+  @@map("live_call_sessions")
+  @@schema("ingestion")
+}
+
+model LiveCallSummary {
+  id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId            String          @map("session_id") @db.Uuid
+  chunkIndex           Int             @map("chunk_index")
+  timeStart            String          @map("time_start")
+  timeEnd              String          @map("time_end")
+  summaryText          String          @map("summary_text") @db.Text
+  keyTopics            String[]        @default([]) @map("key_topics")
+  sentiment            String          @default("neutral")
+  competitorsMentioned String[]        @default([]) @map("competitors_mentioned")
+  rawTranscript        String?         @map("raw_transcript") @db.Text
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  session              LiveCallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tenantid             String          @db.Uuid
+
+  @@index([sessionId, chunkIndex])
+  @@index([tenantid, sessionId])
+  @@map("live_call_summaries")
+  @@schema("ingestion")
+}
+
+model EngageTask {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid             String   @map("tenant_id") @db.Uuid
+  taskId               String   @unique @map("task_id")
+  title                String   @default("")
+  contactId            String?  @map("contact_id")
+  contactName          String   @map("contact_name")
+  companyName          String   @map("company_name")
+  channel              String
+  scheduledTime        String?  @map("scheduled_time")
+  dueDateTime          String?  @map("due_date_time")
+  isOverdue            Boolean  @default(false) @map("is_overdue")
+  isAtRisk             Boolean  @default(false) @map("is_at_risk")
+  interactionCount     Int      @default(0) @map("interaction_count")
+  priority             String   @default("NORMAL")
+  status               String   @default("PENDING")
+  dueDate              String?  @map("due_date")
+  dueTime              String?  @map("due_time")
+  assigneeId           String?  @map("assignee_id")
+  assigneeName         String?  @map("assignee_name")
+  assigneeRole         String?  @map("assignee_role")
+  aiSignal             String?  @map("ai_signal")
+  aiSignalType         String?  @map("ai_signal_type")
+  arr                  String?
+  aiInsight            String?  @map("ai_insight") @db.Text
+  notes                String?  @db.Text
+  todoType             String?  @map("todo_type")
+  entityType           String?  @map("entity_type")
+  workflowName         String?  @map("workflow_name")
+  workflowStep         String?  @map("workflow_step")
+  totalWorkflowSteps   Int?     @map("total_workflow_steps")
+  snoozedUntil         String?  @map("snoozed_until")
+  sequenceName         String?  @map("sequence_name")
+  sequenceStep         String?  @map("sequence_step")
+  recentActivity       Json?
+  recommendedNextSteps String[] @map("recommended_next_steps")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantid, status])
+  @@map("engage_tasks")
+  @@schema("public")
+}
+
+model EngageContact {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid           String   @map("tenant_id") @db.Uuid
+  contactId          String   @unique @map("contact_id")
+  contactName        String   @map("contact_name")
+  jobTitle           String?  @map("job_title")
+  company            String?
+  phone              String?
+  email              String?
+  linkedInUrl        String?  @map("linkedin_url")
+  engagementTimeline Json?    @map("engagement_timeline")
+  accountInfo        Json?    @map("account_info")
+  dealInfo           Json?    @map("deal_info")
+  notes              String?  @db.Text
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([tenantid])
+  @@map("engage_contacts")
+  @@schema("public")
+}
+
+model EmailDraft {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @map("tenant_id") @db.Uuid
+  taskId       String   @unique @map("task_id")
+  contactName  String?  @map("contact_name")
+  contactEmail String?  @map("contact_email")
+  fromEmail    String?  @map("from_email")
+  fromLabel    String?  @map("from_label")
+  subject      String
+  bodyHtml     String   @map("body_html") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantid])
+  @@map("email_drafts")
+  @@schema("public")
+}
+
+model EmailTemplate {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @map("tenant_id") @db.Uuid
+  templateId   String   @unique @map("template_id")
+  templateName String   @map("template_name")
+  subject      String
+  bodyHtml     String   @map("body_html") @db.Text
+  category     String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([tenantid])
+  @@map("email_templates")
+  @@schema("public")
+}
+
+model EngageActivity {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @map("tenant_id") @db.Uuid
+  activityId   String   @unique @map("activity_id") @db.Uuid
+  contactId    String?  @map("contact_id")
+  contactName  String   @map("contact_name")
+  company      String?
+  channelType  String   @map("channel_type")
+  summary      String
+  occurredAt   String   @map("occurred_at")
+  timeAgoLabel String?  @map("time_ago_label")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([tenantid])
+  @@map("engage_activities")
+  @@schema("public")
+}
+
+model CallReview {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String   @map("tenant_id") @db.Uuid
+  reviewId         String   @unique @map("review_id")
+  callTitle        String   @map("call_title")
+  salesRep         String?  @map("sales_rep")
+  customer         String?
+  dateTime         String?  @map("date_time")
+  duration         String?
+  callType         String?  @map("call_type")
+  dealLinked       String?  @map("deal_linked")
+  callSource       String?  @map("call_source")
+  participants     Json?
+  aiSummary        String?  @map("ai_summary") @db.Text
+  keyHighlights    String[] @map("key_highlights")
+  talkRatio        Json?    @map("talk_ratio")
+  sentimentSummary String?  @map("sentiment_summary")
+  sentimentScore   Int?     @map("sentiment_score")
+  risksDetected    String[] @map("risks_detected")
+  actionItemsList  String[] @map("action_items_list")
+  scorecardName    String?  @map("scorecard_name")
+  scorecardId      String?  @map("scorecard_id")
+  scorecardVersion String?  @map("scorecard_version")
+  reviewMode       String?  @map("review_mode")
+  dueDate          String?  @map("due_date")
+  priority         String?  @default("Medium")
+  status           String   @default("Pending")
+  reviewer         String?  @default("You")
+  quickStats       Json?    @map("quick_stats")
+  aiFlags          String[] @map("ai_flags")
+  hasReview        Boolean  @default(false) @map("has_review")
+  questions        Json?    @default("[]")
+  feedback         Json?    @default("[]")
+  overallScore     Int?     @map("overall_score")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantid])
+  @@map("call_reviews")
+  @@schema("public")
+}
+
+model M02Tracker {
+  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid   String                @map("tenant_id") @db.Uuid
+  slug       String                @map("slug")
+  name       String
+  keywords   String[]              @default([])
+  trend      Int                   @default(0)
+  aiInsight  String?               @map("ai_insight") @db.Text
+  isActive   Boolean               @default(true) @map("is_active")
+  createdAt  DateTime              @default(now()) @map("created_at")
+  updatedAt  DateTime              @updatedAt @map("updated_at")
+  detections M02TrackerDetection[]
+
+  @@unique([tenantid, slug])
+  @@index([tenantid])
+  @@map("m02_trackers")
+  @@schema("public")
+}
+
+model M02TrackerDetection {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String     @map("tenant_id") @db.Uuid
+  trackerId        String     @map("tracker_id") @db.Uuid
+  entityType       String     @map("entity_type")
+  entityId         String     @map("entity_id")
+  matchedKeyword   String     @map("matched_keyword")
+  snippet          String     @db.Text
+  timestampSeconds Int?       @map("timestamp_seconds")
+  accountName      String?    @map("account_name")
+  repName          String?    @map("rep_name")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  tracker          M02Tracker @relation(fields: [trackerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantid, trackerId])
+  @@index([tenantid, entityId])
+  @@map("m02_tracker_detections")
+  @@schema("public")
+}
+
+model ManagerAccount {
+  id               String    @id @db.Uuid
+  tenantid         String    @map("tenant_id") @db.Uuid
+  name             String
+  ownerId          String?   @map("owner_id")
+  ownerName        String?   @map("owner_name")
+  ownerInitials    String?   @map("owner_initials")
+  exitARR          Int       @default(0) @map("exit_arr")
+  contactsCount    Int       @default(0) @map("contacts_count")
+  lastActivity     String?   @map("last_activity")
+  managerNote      String?   @map("manager_note")
+  openDeals        Int       @default(0) @map("open_deals")
+  renewalDate      String?   @map("renewal_date")
+  activity         Json?     @map("activity")
+  recentActivities Json?     @map("recent_activities")
+  overview         Json?     @map("overview")
+  activityFeed     Json?     @map("activity_feed")
+  briefContent     String?   @map("brief_content") @db.Text
+  todos            Json?     @map("todos")
+  notes            String?   @map("notes") @db.Text
+  notesUpdatedAt   DateTime? @map("notes_updated_at")
+  crmFields        Json?     @map("crm_fields")
+  aiChatHistory    Json?     @map("ai_chat_history")
+
+  @@index([tenantid])
+  @@map("manager_accounts")
+  @@schema("public")
+}
+
+model ManagerAccountsConfig {
+  id          String @id @db.Uuid
+  tenantid    String @map("tenant_id") @db.Uuid
+  alertBanner Json?  @map("alert_banner")
+  kpiSummary  Json?  @map("kpi_summary")
+  viewers     Json?  @map("viewers")
+
+  @@index([tenantid])
+  @@map("manager_accounts_config")
+  @@schema("public")
+}
+
+model ManagerCoachingConfig {
+  id              String @id @db.Uuid
+  tenantid        String @map("tenant_id") @db.Uuid
+  filters         Json?  @map("filters")
+  activity        Json?  @map("activity")
+  interaction     Json?  @map("interaction")
+  responsiveness  Json?  @map("responsiveness")
+  scorecards      Json?  @map("scorecards")
+  aiInsights      Json?  @map("ai_insights")
+  teamVsBenchmark Json?  @map("team_vs_benchmark")
+
+  @@index([tenantid])
+  @@map("manager_coaching_config")
+  @@schema("public")
+}
+
+model ManagerCoachingRep {
+  id                 String @id @db.Uuid
+  tenantid           String @map("tenant_id") @db.Uuid
+  header             Json?  @map("header")
+  kpis               Json?  @map("kpis")
+  trend              Json?  @map("trend")
+  recentCalls        Json?  @map("recent_calls")
+  observedPatterns   Json?  @map("observed_patterns")
+  recommendedActions Json?  @map("recommended_actions")
+  coachingHistory    Json?  @map("coaching_history")
+
+  @@index([tenantid])
+  @@map("manager_coaching_reps")
+  @@schema("public")
+}
+
+model DealMeddpicc {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid       String @db.Uuid
+  dealExternalId String // HubSpot / CRM deal ID for direct lookup
+
+  // Overall score (0-100)
+  score Int @default(0)
+
+  // Category answers — best evidence sentence for each MEDDPICC element
+  metrics          String?
+  economicBuyer    String?
+  decisionCriteria String?
+  decisionProcess  String?
+  identifyPain     String?
+  champion         String?
+
+  // Derived data
+  matchedCategories String[] @default([])
+  contactCount      Int      @default(0)
+  aiNextStep        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantid, dealExternalId])
+  @@map("deal_meddpicc")
+  @@schema("revenuegraph")
+}
+
+model M04DealDriver {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid    String    @db.Uuid
+  dealId      String    @db.Uuid
+  boardId     String?   @db.Uuid
+  name        String
+  type        String    @default("action")
+  status      String    @default("active")
+  priority    String    @default("medium")
+  owner       String?
+  dueDate     DateTime?
+  description String?
+  warningType String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([dealId])
+  @@index([boardId])
+  @@index([tenantid, dealId])
+  @@map("m04_deal_drivers")
+  @@schema("revenuegraph")
+}
+
+model DealComment {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid    String   @db.Uuid
+  dealId      String   @db.Uuid
+  comment     String
+  managerName String?  @default("Manager")
+  createdAt   DateTime @default(now())
+
+  @@index([tenantid, dealId])
+  @@map("m04_deal_comments")
+  @@schema("revenuegraph")
+}
+
+model DealTask {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid    String    @db.Uuid
+  dealId      String    @db.Uuid
+  title       String
+  description String?
+  status      String    @default("pending")
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantid, dealId])
+  @@map("m04_deal_tasks")
+  @@schema("revenuegraph")
+}
+
+model DealWarning {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String   @db.Uuid
+  dealId          String   @db.Uuid
+  severity        String
+  title           String
+  description     String
+  suggestedAction String
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+
+  @@index([tenantid, dealId])
+  @@map("m04_deal_warnings")
+  @@schema("revenuegraph")
+}
+
+model DealPlaybook {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String   @db.Uuid
+  dealId          String   @db.Uuid
+  criterionName   String
+  question        String
+  status          String   @default("Pending")
+  notes           String?
+  aiSuggestedNote String?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantid, dealId])
+  @@map("m04_deal_playbooks")
+  @@schema("revenuegraph")
+}
+
+model DealActivityEvent {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @db.Uuid
+  dealId       String   @db.Uuid
+  date         String
+  type         String
+  duration     Int
+  direction    String
+  participants String[]
+  notes        String?
+  transcript   String?
+  createdAt    DateTime @default(now())
+
+  @@index([tenantid, dealId])
+  @@map("m04_deal_activity_events")
+  @@schema("revenuegraph")
+}
+
+model DealNotification {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String   @db.Uuid
+  repName   String
+  message   String
+  type      String   @default("info")
+  timestamp DateTime @default(now())
+  read      Boolean  @default(false)
+  dealId    String?  @db.Uuid
+
+  @@index([tenantid, id])
+  @@map("m04_deal_notifications")
+  @@schema("revenuegraph")
+}
+
+model M04DealBoard {
+  id                        String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid                  String               @db.Uuid
+  name                      String
+  description               String?
+  audience                  String[]
+  status                    String               @default("DRAFT")
+  ownerId                   String               @map("owner_id")
+  isLocked                  Boolean              @default(false) @map("is_locked")
+  allowRepColumnReorder     Boolean              @default(false) @map("allow_rep_column_reorder")
+  preventManualDealOverride Boolean              @default(true) @map("prevent_manual_deal_override")
+  metadata                  Json?                @map("metadata")
+  createdAt                 DateTime             @default(now()) @map("created_at")
+  updatedAt                 DateTime             @updatedAt @map("updated_at")
+  filters                   M04BoardFilter[]
+  tabs                      M04BoardTab[]
+  columns                   M04BoardColumn[]
+  permissions               M04BoardPermission[]
+
+  @@unique([tenantid, name])
+  @@index([tenantid, id])
+  @@map("m04_deal_boards")
+  @@schema("revenuegraph")
+}
+
+model M04BoardFilter {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String       @db.Uuid
+  boardId   String       @map("board_id") @db.Uuid
+  field     String
+  operator  String
+  value     String
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  board     M04DealBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@index([tenantid, boardId])
+  @@map("m04_board_filters")
+  @@schema("revenuegraph")
+}
+
+model M04BoardTab {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String       @db.Uuid
+  boardId   String       @map("board_id") @db.Uuid
+  name      String
+  order     Int
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  board     M04DealBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@index([tenantid, boardId])
+  @@map("m04_board_tabs")
+  @@schema("revenuegraph")
+}
+
+model M04BoardColumn {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid   String       @db.Uuid
+  boardId    String       @map("board_id") @db.Uuid
+  field      String
+  label      String
+  width      Int
+  order      Int
+  isVisible  Boolean      @default(true) @map("is_visible")
+  isSortable Boolean      @default(true) @map("is_sortable")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  board      M04DealBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@index([tenantid, boardId])
+  @@map("m04_board_columns")
+  @@schema("revenuegraph")
+}
+
+model M04BoardPermission {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String       @db.Uuid
+  boardId   String       @map("board_id") @db.Uuid
+  userId    String       @map("user_id")
+  role      String
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  board     M04DealBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId])
+  @@index([userId])
+  @@index([tenantid, boardId])
+  @@index([tenantid, userId])
+  @@map("m04_board_permissions")
+  @@schema("revenuegraph")
+}
+
+model M04UserPreference {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String   @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  key       String
+  value     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantid, userId, key])
+  @@index([tenantid, userId])
+  @@map("m04_user_preferences")
+  @@schema("revenuegraph")
+}
+
+model M04SyncLog {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid         String    @db.Uuid
+  source           String
+  status           String
+  recordsProcessed Int       @map("records_processed")
+  recordsFailed    Int       @map("records_failed")
+  error            String?
+  startedAt        DateTime  @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantid, source])
+  @@index([tenantid, status])
+  @@index([tenantid, startedAt])
+  @@map("m04_sync_logs")
+  @@schema("revenuegraph")
+}
+
+model M04DealSummary {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid    String   @db.Uuid
+  dealId      String   @map("deal_id") @db.Uuid
+  summary     String
+  generatedAt DateTime @map("generated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantid, dealId])
+  @@index([tenantid, dealId])
+  @@map("m04_deal_summaries")
+  @@schema("revenuegraph")
+}
+
+model M04AnalyticsSnapshot {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid     String   @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  snapshotDate DateTime @map("snapshot_date") @db.Date
+  data         Json
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([tenantid, userId])
+  @@index([tenantid, snapshotDate])
+  @@map("m04_analytics_snapshots")
+  @@schema("revenuegraph")
+}
+
+model M04Session {
+  id        String   @id
+  tenantid  String   @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at")
+  data      Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantid, userId])
+  @@index([tenantid, expiresAt])
+  @@map("m04_sessions")
+  @@schema("revenuegraph")
+}
+
+model ThemeAnalysis {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid          String             @db.Uuid
+  name              String
+  summary           String?
+  callCount         Int
+  accountCount      Int
+  associatedRevenue Float
+  createdAt         DateTime           @default(now())
+  mappings          ThemeCallMapping[]
+  quotes            ThemeQuote[]
+
+  @@map("theme_analyses")
+  @@schema("public")
+}
+
+model ThemeCallMapping {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String        @db.Uuid
+  themeAnalysisId String        @db.Uuid
+  callRecordId    String        @db.Uuid
+  theme           ThemeAnalysis @relation(fields: [themeAnalysisId], references: [id], onDelete: Cascade)
+  call            CallRecord    @relation(fields: [callRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([themeAnalysisId, callRecordId])
+  @@map("theme_call_mappings")
+  @@schema("public")
+}
+
+model ThemeQuote {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid        String        @db.Uuid
+  themeAnalysisId String        @db.Uuid
+  callRecordId    String        @db.Uuid
+  quoteText       String
+  timestampMs     Int
+  company         String?
+  callName        String?
+  theme           ThemeAnalysis @relation(fields: [themeAnalysisId], references: [id], onDelete: Cascade)
+  call            CallRecord    @relation(fields: [callRecordId], references: [id], onDelete: Cascade)
+
+  @@map("theme_quotes")
+  @@schema("public")
+}
+
+model AiDeepResearcherReport {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantid  String   @db.Uuid
+  jobId     String   @unique
+  query     String
+  status    String
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ai_deep_researcher_reports")
+  @@schema("public")
+}
