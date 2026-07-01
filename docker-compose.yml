@@ -25,8 +25,8 @@ services:
       dockerfile: Dockerfile
     container_name: call_reviewer_app
     restart: always
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       - DATABASE_URL=postgresql://postgres:your_secure_password@postgres:5432/call_reviewer?schema=public
       - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
@@ -38,6 +38,17 @@ services:
     volumes:
       # Mount the local audio-registry.json to persist audio paths if doing local injection
       - ./audio-registry.json:/app/audio-registry.json
+
+  nginx:
+    image: nginx:alpine
+    container_name: call_reviewer_nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - web
 
 volumes:
   postgres_data:
