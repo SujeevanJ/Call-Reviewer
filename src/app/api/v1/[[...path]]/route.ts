@@ -818,7 +818,7 @@ async function handleRequest(method: string, req: Request, pathSegments: string[
           }
         });
 
-        const finalScore = maxPoints > 0 ? Math.round((earnedPoints / maxPoints) * 100) : 85;
+        const finalScore = maxPoints > 0 ? Math.round((earnedPoints / maxPoints) * 100) : 0;
 
         // Merge answers into questions for storage
         const mergedQuestions = mergeAnswersIntoQuestions(storedQuestions, answersDict);
