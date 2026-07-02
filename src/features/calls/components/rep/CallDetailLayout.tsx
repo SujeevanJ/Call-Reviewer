@@ -95,7 +95,7 @@ export default function CallDetailLayout({ callId, children }: CallDetailLayoutP
               ) : null}
 
               {/* Participants — inline "Name (Role)" separated by commas */}
-              {call.participants && call.participants.length > 0 && (
+              {/* {call.participants && call.participants.length > 0 && (
                 <div className="flex flex-wrap items-baseline text-sm text-gray-500">
                   <span className="font-medium text-gray-700 mr-1.5">Participants:</span>
                   {(call.participants).map((p: any, i, arr) => {
@@ -116,7 +116,7 @@ export default function CallDetailLayout({ callId, children }: CallDetailLayoutP
                     );
                   })}
                 </div>
-              )}
+              )} */}
             </div>
 
             {/* AI Score */}
