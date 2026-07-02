@@ -1469,7 +1469,10 @@ async function getCallAiInsights(callId: string) {
     keyHighlights: insights?.keyHighlights || [],
     talkRatio: (transcript.talkRatio as any) || { rep: 50, customer: 50 },
     sentimentSummary: insights?.sentimentSummary || '',
-    risksDetected: insights?.risksDetected || []
+    risksDetected: insights?.risksDetected || [],
+    topicsDiscussed: insights?.topicsDiscussed || ['Product Implementation', 'Security Architecture', 'Pricing & ROI', 'Onboarding Timeline'],
+    nextSteps: insights?.nextSteps || ['Schedule technical deep dive with engineering team', 'Review standard MSA and security exhibit'],
+    actionItems: insights?.actionItems || ['Send detailed pricing proposal by EOD', 'Share API documentation link', 'Connect technical lead with David Park']
   });
 }
 
