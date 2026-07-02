@@ -27,7 +27,7 @@ async function runDemoUpload() {
     process.exit(1);
   }
 
-  const tenantId = '00000000-0000-0000-0000-000000000000';
+  const tenantId = '00000000-0000-0000-0000-000000000001';
   const callRecordId = crypto.randomUUID();
 
   console.log(`\n=================================================`);
@@ -97,8 +97,10 @@ async function runDemoUpload() {
   // Create the CallReview record (Pending status for rep isolation)
   await db.callReview.create({
     data: {
+      reviewId: crypto.randomUUID(),
       tenantid: tenantId,
       callTitle: callTitle,
+      salesRep: salesRepName,
       reviewer: 'Manager',
       status: 'Pending',
       overallScore: 0,
