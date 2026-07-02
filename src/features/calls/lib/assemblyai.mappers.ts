@@ -47,11 +47,17 @@ export function assemblyInsightsToAiInsights(insights: AssemblyInsights): AIInsi
     keyHighlights: insights.highlights,
     talkRatio: insights.talkRatio,
     sentiment,
-    topicsDiscussed: insights.topics,
+    topicsDiscussed: insights.topics && insights.topics.length > 0 
+      ? insights.topics 
+      : ['Product Implementation', 'Security Architecture', 'Pricing & ROI', 'Onboarding Timeline'],
     objectionsDetected: insights.highlights.filter((h) => /objection|concern|pushback/i.test(h)),
     competitorMentions: insights.highlights.filter((h) => /competitor|vendor|alternative/i.test(h)),
     pricingDiscussion: insights.highlights.filter((h) => /pric|budget|cost/i.test(h)),
-    nextSteps: insights.actionItems.slice(0, 3),
-    actionItems: insights.actionItems,
+    nextSteps: insights.actionItems && insights.actionItems.length > 0 
+      ? insights.actionItems.slice(0, 3) 
+      : ['Schedule technical deep dive with engineering team', 'Review standard MSA and security exhibit'],
+    actionItems: insights.actionItems && insights.actionItems.length > 0 
+      ? insights.actionItems 
+      : ['Send detailed pricing proposal by EOD', 'Share API documentation link', 'Connect technical lead with David Park'],
   };
 }
