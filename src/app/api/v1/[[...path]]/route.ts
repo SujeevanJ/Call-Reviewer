@@ -1463,7 +1463,7 @@ async function getCallAiInsights(callId: string) {
     });
   }
 
-  const insights = await getOrGenerateAiInsights(review, { transcript });
+  const insights = await getOrGenerateAiInsights(review, { transcript }) as any;
   return successResponse({
     summary: insights?.summary || 'AI summary generation pending.',
     keyHighlights: insights?.keyHighlights || [],
