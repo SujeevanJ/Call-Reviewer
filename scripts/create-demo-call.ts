@@ -1,8 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import crypto from 'crypto';
-import { transcribeAudioUrl, saveTranscriptToDb } from './src/lib/assemblyai-transcriber';
-import { generateDynamicQuestions } from './src/lib/ai-question-generator';
+import { transcribeAudioUrl, saveTranscriptToDb } from '../src/lib/assemblyai-transcriber';
+import { generateDynamicQuestions } from '../src/lib/ai-question-generator';
 
 const db = new PrismaClient();
 

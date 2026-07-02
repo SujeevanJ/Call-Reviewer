@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { fetchCalls, type CallsListResult } from '@calls/services/callsApi';
 import type { AiCallReviewerCall } from '@calls/types/ai-call-reviewer.types';
-import AssemblyAIKeySettings from '@calls/components/rep/AssemblyAIKeySettings';
+// import AssemblyAIKeySettings from '@calls/components/rep/AssemblyAIKeySettings';
 
 function getCallIcon(call: AiCallReviewerCall) {
   if (call.type === 'Cold Call' || call.tags.includes('Outbound')) {
@@ -215,7 +215,7 @@ export default function AICallReviewerCallsList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <AssemblyAIKeySettings compact />
+          {/* <AssemblyAIKeySettings compact /> */}
         </div>
       </div>
 

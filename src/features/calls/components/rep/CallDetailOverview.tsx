@@ -384,7 +384,7 @@ function BulletList({ items, color }: { items: string[]; color: string }) {
   );
 }
 
-function AIInsightsPanel({ insights, loading }: { insights: AIInsights | null; loading: boolean }) {
+function AIInsightsPanel({ insights, loading, repName }: { insights: AIInsights | null; loading: boolean; repName?: string }) {
   if (loading) {
     return (
       <div className="p-6 space-y-6">
@@ -431,7 +431,7 @@ function AIInsightsPanel({ insights, loading }: { insights: AIInsights | null; l
         </div>
         <div className="space-y-2">
           <div className="flex justify-between text-sm mb-1">
-            <span style={{ color: '#6B7280' }}>Me</span>
+            <span style={{ color: '#6B7280' }}>{repName || 'Rep'}</span>
             <span className="font-medium" style={{ color: '#111827' }}>{insights.talkRatio.rep}%</span>
           </div>
           <div className="w-full rounded-full h-2" style={{ backgroundColor: '#E5E7EB' }}>
@@ -538,15 +538,29 @@ function AIInsightsPanel({ insights, loading }: { insights: AIInsights | null; l
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function CallDetailOverview({ callId }: { callId: string }) {
-  const audioPlayerRef = useRef<AudioPlayerHandle>(null);
-  const { playbackUrl, status: aiStatus, insights: assemblyInsights, error: assemblyError } =
-    useAssemblyAI(callId);
-
+  const [audioRegistry, setAudioRegistry] = useState<Record<string, string>>({});
   const [fallbackTranscript, setFallbackTranscript] = useState<TranscriptEntry[]>([]);
   const [dbInsights, setDbInsights] = useState<AIInsights | null>(null);
   const [dbLoading, setDbLoading] = useState(true);
+  const [callData, setCallData] = useState<any>(null);
+  const audioPlayerRef = useRef<{ seekTo: (time: number) => void }>(null);
+  
+  const { playbackUrl, status: aiStatus, insights: assemblyInsights, error: assemblyError } =
+    useAssemblyAI(callId);
 
+  // 1. Check local audio registry first
   useEffect(() => {
+    fetch('/audio-registry.json')
+      .then(res => res.json())
+      .catch(() => ({}))
+      .then(registry => {
+        setAudioRegistry(registry);
+      });
+  }, []);
+
+  // 2. Load DB records (Transcript, Insights, and Call)
+  useEffect(() => {
+    setDbLoading(true);
     // Always fetch the backend DB versions of transcript and insights
     Promise.all([
       fetchTranscript(callId).catch(() => []),
@@ -624,7 +638,7 @@ export default function CallDetailOverview({ callId }: { callId: string }) {
           <div className="px-6 pt-6 pb-2 border-b" style={{ borderColor: '#E5E7EB' }}>
             <h2 className="text-xl font-semibold" style={{ color: '#111827' }}>AI Insights</h2>
           </div>
-          <AIInsightsPanel insights={insights} loading={insightsLoading} />
+          <AIInsightsPanel insights={insights} loading={insightsLoading} repName={callData?.salesRep || callData?.callOwner || callData?.ownerName || 'Rep'} />
         </div>
       </div>
     </div>

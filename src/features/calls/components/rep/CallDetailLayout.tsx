@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { fetchCall } from '@calls/services/callsApi';
 import type { CallDetail } from '@calls/data/mockData';
-import AssemblyAIKeySettings from '@calls/components/rep/AssemblyAIKeySettings';
+// import AssemblyAIKeySettings from '@calls/components/rep/AssemblyAIKeySettings';
 
 const PARTICIPANT_COLORS: Record<string, string> = {
   Rep: 'text-blue-600',
@@ -69,7 +69,7 @@ export default function CallDetailLayout({ callId, children }: CallDetailLayoutP
             <ArrowLeft size={14} />
             Back to My Calls
           </Link>
-          <AssemblyAIKeySettings compact />
+          {/* <AssemblyAIKeySettings compact /> */}
         </div>
 
         {/* Call Header */}
@@ -80,39 +80,43 @@ export default function CallDetailLayout({ callId, children }: CallDetailLayoutP
               <h1 className="text-2xl font-semibold leading-tight" style={{ color: '#111827' }}>{call.callName}</h1>
 
               {/* Meta row — bullet-separated, no icons */}
-              <div className="flex flex-wrap items-center text-sm text-gray-500">
-                <span className="font-medium text-gray-700">{call.account}</span>
-                <span className="mx-2 text-gray-300">•</span>
-                <span>{formatDateTime(call.dateTime)}</span>
-                <span className="mx-2 text-gray-300">•</span>
-                <span>{call.duration}</span>
-                <span className="mx-2 text-gray-300">•</span>
-                <span>{call.type}</span>
-                <span className="mx-2 text-gray-300">•</span>
-                <span>{call.stage}</span>
-              </div>
+              {call.dateTime || call.duration || call.type || call.stage ? (
+                <div className="flex flex-wrap items-center text-sm text-gray-500">
+                  {call.account && <span className="font-medium text-gray-700">{call.account}</span>}
+                  {call.account && <span className="mx-2 text-gray-300">•</span>}
+                  {call.dateTime && <span>{formatDateTime(call.dateTime)}</span>}
+                  {call.dateTime && <span className="mx-2 text-gray-300">•</span>}
+                  {call.duration && <span>{call.duration}</span>}
+                  {call.duration && <span className="mx-2 text-gray-300">•</span>}
+                  {call.type && <span>{call.type}</span>}
+                  {call.type && <span className="mx-2 text-gray-300">•</span>}
+                  {call.stage && <span>{call.stage}</span>}
+                </div>
+              ) : null}
 
               {/* Participants — inline "Name (Role)" separated by commas */}
-              <div className="flex flex-wrap items-baseline text-sm text-gray-500">
-                <span className="font-medium text-gray-700 mr-1.5">Participants:</span>
-                {(call.participants || []).map((p: any, i, arr) => {
-                  const name = typeof p === 'string' ? p : p?.name || 'Unknown';
-                  const role = typeof p === 'string' ? (i === 0 ? 'Rep' : 'Buyer') : p?.role || 'Participant';
-                  return (
-                    <span key={`${name}-${i}`} className="mr-0.5">
-                      <span className={`font-medium ${PARTICIPANT_COLORS[role] ?? 'text-gray-700'}`}>
-                        {name}
+              {call.participants && call.participants.length > 0 && (
+                <div className="flex flex-wrap items-baseline text-sm text-gray-500">
+                  <span className="font-medium text-gray-700 mr-1.5">Participants:</span>
+                  {(call.participants).map((p: any, i, arr) => {
+                    const name = typeof p === 'string' ? p : p?.name || 'Unknown';
+                    const role = typeof p === 'string' ? (i === 0 ? 'Rep' : 'Buyer') : p?.role || 'Participant';
+                    return (
+                      <span key={`${name}-${i}`} className="mr-0.5">
+                        <span className={`font-medium ${PARTICIPANT_COLORS[role] ?? 'text-gray-700'}`}>
+                          {name}
+                        </span>
+                        {role && role !== 'Participant' && (
+                          <span className="text-gray-500"> ({role})</span>
+                        )}
+                        {i < arr.length - 1 && (
+                          <span className="text-gray-400">,&nbsp;</span>
+                        )}
                       </span>
-                      {role && role !== 'Participant' && (
-                        <span className="text-gray-500"> ({role})</span>
-                      )}
-                      {i < arr.length - 1 && (
-                        <span className="text-gray-400">,&nbsp;</span>
-                      )}
-                    </span>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* AI Score */}
