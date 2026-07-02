@@ -1406,17 +1406,42 @@ async function getCallTranscript(callId: string, tenantId?: string) {
     return successResponse({ entries: [], message: 'No transcript available for this call.' });
   }
 
-  const utterances = (transcript as any).utterances || [];
-  const entries = utterances.map((u: any) => ({
-    id: u.id,
-    speaker: u.speaker,
-    text: u.text,
-    startMs: u.startMs,
-    endMs: u.endMs,
-    confidence: u.confidence
-  }));
+  const callReview = await db.callReview.findFirst({
+    where: { OR: [{ id: callId }, { reviewId: CALL_TO_REVIEW_MAP[callId] || callId }] }
+  }) || await db.callReview.findFirst({
+    where: { callTitle: (transcript as any).call?.title || '' }
+  });
 
-  return successResponse({ entries });
+  const repName = callReview?.salesRep || 'Sales Rep';
+
+  const entries = utterances.map((u: any) => {
+    let finalSpeakerName = u.speaker;
+    if (u.speaker === 'A' || u.speaker?.toLowerCase().includes('rep')) {
+      finalSpeakerName = repName;
+    } else if (u.speaker === 'B' || u.speaker?.toLowerCase().includes('customer')) {
+      finalSpeakerName = 'Customer';
+    } else if (u.speaker === 'Speaker A') {
+      finalSpeakerName = repName;
+    } else if (u.speaker === 'Speaker B') {
+      finalSpeakerName = 'Customer';
+    }
+
+    return {
+      id: u.id,
+      speaker: finalSpeakerName,
+      speakerName: finalSpeakerName,
+      speakerType: (u.speaker === 'A' || u.speaker === 'Speaker A') ? 'rep' : 'customer',
+      text: u.text,
+      timestamp: formatSecondsToMmSs(Math.floor((u.startMs || 0) / 1000)),
+      startMs: u.startMs,
+      endMs: u.endMs,
+      confidence: u.confidence
+    };
+  });
+
+  // The frontend expects either { entries } or { transcript } depending on the module.
+  // We send both to be extremely safe for cross-module compatibility.
+  return successResponse({ entries, transcript: entries });
 }
 
 
