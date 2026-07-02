@@ -1416,9 +1416,9 @@ async function getCallTranscript(callId: string, tenantId?: string) {
 
   const entries = utterances.map((u: any) => {
     let finalSpeakerName = u.speaker;
-    if (u.speaker === 'A' || u.speaker?.toLowerCase().includes('rep')) {
+    if (u.speaker === 'A' || u.speaker?.toLowerCase()?.includes('rep')) {
       finalSpeakerName = repName;
-    } else if (u.speaker === 'B' || u.speaker?.toLowerCase().includes('customer')) {
+    } else if (u.speaker === 'B' || u.speaker?.toLowerCase()?.includes('customer')) {
       finalSpeakerName = 'Customer';
     } else if (u.speaker === 'Speaker A') {
       finalSpeakerName = repName;
